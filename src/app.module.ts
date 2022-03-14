@@ -13,6 +13,7 @@ import { AppService } from './app.service';
 import { CoreModule } from './core/core.module';
 import { HelmetMiddleware } from '@nest-middlewares/helmet';
 import { APP_GUARD } from '@nestjs/core';
+import { TaxonomyModule } from './taxonomy/taxonomy.module';
 
 @Module({
   imports: [
@@ -21,10 +22,11 @@ import { APP_GUARD } from '@nestjs/core';
       debug: config.isDevelopment,
       playground: true,
       autoSchemaFile: './schema.gql',
-      include: [CoreModule],
+      include: [CoreModule, TaxonomyModule],
       context: ({ req }) => ({ req }),
       introspection: true,
     }),
+    TaxonomyModule,
   ],
   controllers: [AppController],
   providers: [
