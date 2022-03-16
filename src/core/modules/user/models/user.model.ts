@@ -1,3 +1,8 @@
+import { ReadingModel } from '@app/readings/models/reading.model';
+import { DefaultFields } from '@core/constants/entitites/default.fields';
+import { SystemRoleModel } from '@core/modules/user/models/system-roles.model';
+import { AsEither, AsInput, AsOutput } from '@core/validators';
+import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { ApiResponseProperty } from '@nestjs/swagger';
 import {
   IsDate,
@@ -11,7 +16,6 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { Field, ID, ObjectType } from '@nestjs/graphql';
 import {
   Column,
   Entity,
@@ -25,9 +29,6 @@ import {
   PrimaryGeneratedColumn,
   Unique,
 } from 'typeorm';
-import { SystemRoleModel } from '@core/modules/user/models/system-roles.model';
-import { AsEither, AsInput, AsOutput } from '@core/validators';
-import { DefaultFields } from '@core/constants/entitites/default.fields';
 import { Profile } from './profile.model';
 
 @ObjectType()
@@ -156,25 +157,7 @@ export class UserModel extends DefaultFields {
   @ApiResponseProperty()
   profile?: Profile;
 
-  // @Field(type => [String])
-  // get permissions() {
-  //   const perms = [];
-
-  //   if (this.systemRoles && this.systemRoles.length > 0) {
-  //     this.systemRoles.map(
-  //       role =>
-  //         role.permissions &&
-  //         role.permissions.length > 0 &&
-  //         role.permissions.map(perm => perms.push(perm.name)),
-  //     );
-  //   }
-  //   return perms;
-  // }
-
-  // hasPermission?(permission): boolean {
-  //   const permissions = this.systemRoles.map(role => {
-  //     return role.permissions.map(perm => perm.name === permission);
-  //   });
-  //   return false;
-  // }
+  @OneToMany(() => ReadingModel, (readings: ReadingModel) => readings.user)
+  @ApiResponseProperty()
+  public readings?: ReadingModel[];
 }

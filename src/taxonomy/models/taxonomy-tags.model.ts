@@ -1,3 +1,4 @@
+import { ReadingModel } from '@app/readings/models/reading.model';
 import { AsEither, AsOutput } from '@core/validators';
 import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { ApiResponseProperty } from '@nestjs/swagger';
@@ -76,4 +77,9 @@ export class TaxonomyTagModel {
   @Field((type) => TaxonomyTagModel, { nullable: true })
   @ApiResponseProperty()
   public children?: TaxonomyTagModel[];
+
+  @OneToMany(() => ReadingModel, (r: ReadingModel) => r.type)
+  @Field((type) => ReadingModel, { nullable: true })
+  @ApiResponseProperty()
+  public readings?: ReadingModel[];
 }

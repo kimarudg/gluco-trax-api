@@ -1,18 +1,19 @@
-import { GqlAuthGuard } from './core/modules/user/guards/gql-auth.guard';
 // import { UserModule } from '@core/modules/user/user.module';
 import { config } from '@app/config';
+import { HelmetMiddleware } from '@nest-middlewares/helmet';
 import {
   MiddlewareConsumer,
   Module,
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CoreModule } from './core/core.module';
-import { HelmetMiddleware } from '@nest-middlewares/helmet';
-import { APP_GUARD } from '@nestjs/core';
+import { GqlAuthGuard } from './core/modules/user/guards/gql-auth.guard';
+import { ReadingsModule } from './readings/readings.module';
 import { TaxonomyModule } from './taxonomy/taxonomy.module';
 
 @Module({
@@ -22,11 +23,12 @@ import { TaxonomyModule } from './taxonomy/taxonomy.module';
       debug: config.isDevelopment,
       playground: true,
       autoSchemaFile: './schema.gql',
-      include: [CoreModule, TaxonomyModule],
+      include: [CoreModule, TaxonomyModule, ReadingsModule],
       context: ({ req }) => ({ req }),
       introspection: true,
     }),
     TaxonomyModule,
+    ReadingsModule,
   ],
   controllers: [AppController],
   providers: [
