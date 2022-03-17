@@ -1,0 +1,46 @@
+version: '2.1'
+services:
+  api:
+    container_name: api
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /usr/src/app
+    ports:
+      - '5900:5900'
+    env_file:
+      - .env
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules/
+    depends_on:
+      database:
+        condition: service_healthy
+  redis:
+    image: redis:5.0.10
+    container_name: cache
+    ports:
+      - '6379:6379'
+  database:
+    container_name: database
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    ports:
+      - '8435:5432'
+    environment:
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: gluco_trax
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ${PWD}/.env:/.env
+      - ~/data/psql:/var/lib/postgresql/data
+      - ./db/init-db.sh:/docker-entrypoint-initdb.d/2-init-db.sh

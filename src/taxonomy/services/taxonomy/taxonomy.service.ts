@@ -1,8 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { TYPES } from '../../../types';
-import { TaxonomyTagModel } from '../../models/taxonomy-tags.model';
-import { TaxonomyModel } from '../../models/taxonomy.model';
 import { TaxonomyTagRepository } from '../../repository/taxonomy-tag.repository';
 import { TaxonomyRepository } from '../../repository/taxonomy.repository';
 import { TagInput } from '../../validators/tag.input.validators';
