@@ -27,6 +27,71 @@ executors:
           POSTGRES_USER: test
           DB_NAME: test
 
+commands:
+  attach-workspace:
+    steps:
+      - attach_workspace:
+          at: ~/workspace
+  persist-to-workspace:
+    steps:
+      - persist_to_workspace:
+          root: ~/workspace
+          paths:
+            - ./
+  persist-code-coverage-to-workspace:
+    parameters:
+      fileName:
+        type: string
+    steps:
+      - run:
+          name: Format code coverage
+          command: ./tmp/cc-test-reporter format-coverage -t lcov -o tmp/coverage/<< parameters.fileName >> coverage/lcov.info
+      - persist_to_workspace:
+          root: ~/workspace/tmp/coverage
+          paths:
+            - ./
+  attach-code-coverage-workspace:
+    steps:
+      - attach_workspace:
+          at: ~/workspace/tmp/coverage
+  load-git-commit-url-and-version:
+    steps:
+      - run:
+          name: Export git tag or commit id and git url
+          command: |
+            GIT_COMMIT_ID=$(echo $CIRCLE_SHA1 | cut -c -7)
+            if [ -z $CIRCLE_TAG ]; then
+              GIT_LINK="https://github.com/kimarudg/${CIRCLE_PROJECT_REPONAME}/commit/${GIT_COMMIT_ID}"
+              VERSION_ID=$GIT_COMMIT_ID
+            else
+              GIT_LINK="https://github.com/kimarudg/${CIRCLE_PROJECT_REPONAME}/releases/${CIRCLE_TAG}"
+              VERSION_ID="${CIRCLE_TAG//./-}-${GIT_COMMIT_ID}"
+            fi
+            echo "export GIT_COMMIT_ID=$GIT_COMMIT_ID" >> ~/workspace/custom-env-vars
+            echo "export GIT_LINK=$GIT_LINK" >> ~/workspace/custom-env-vars
+            echo "export VERSION_ID=$VERSION_ID" >> ~/workspace/custom-env-vars
+            cat ~/workspace/custom-env-vars >> $BASH_ENV; source $BASH_ENV
+  download-code-climate-test-reporter:
+    steps:
+      - run:
+          name: Download Code Climate Test Reporter
+          command: |
+            mkdir -p tmp/
+            mkdir -p tmp/coverage/
+            mkdir -p tmp/test-results/
+            curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./tmp/cc-test-reporter
+            chmod +x ./tmp/cc-test-reporter
+  setup-jest-junit-env-variables:
+    steps:
+      - run:
+          name: Export jest junit environment variables
+          command: |
+            echo "export JEST_JUNIT_OUTPUT_DIR=tmp/test-results" >> $BASH_ENV
+            echo "export JEST_JUNIT_OUTPUT_NAME=test-results.xml" >> $BASH_ENV
+            echo "export JEST_JUNIT_SUITE_NAME={filepath}" >> $BASH_ENV
+            echo "export JEST_JUNIT_CLASSNAME={filepath}" >> $BASH_ENV
+            source $BASH_ENV
+
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
