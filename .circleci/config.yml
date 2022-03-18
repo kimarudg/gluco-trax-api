@@ -26,7 +26,6 @@ executors:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_USER: test
           DB_NAME: test
-
 commands:
   attach-workspace:
     steps:
