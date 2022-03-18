@@ -7,7 +7,6 @@ jobs:
     executor: node
     steps:
       - checkout
-      - create-npmrc-file
       - restore_cache:
           keys:
             - v3-dependencies-{{ checksum "package.json" }}
@@ -74,41 +73,6 @@ jobs:
           command: |
             ./tmp/cc-test-reporter sum-coverage tmp/coverage/codeclimate.*.json -p 7 -o tmp/coverage/codeclimate.total.json
             ./tmp/cc-test-reporter upload-coverage -i tmp/coverage/codeclimate.total.json
-  deploy-sandbox:
-    executor: node
-    steps:
-      - attach-workspace
-      - load-git-commit-url-and-version
-      - install-google-cloud-sdk-and-initialize:
-          projectId: $SANDBOX_PROJECT_ID
-      - load-deployment-files
-      - select-cloud-debugger-source-code
-      - run:
-          name: Update Sandbox GAE
-          command: export NODE_ENV=sandbox && export PROJECT_ID=$SANDBOX_PROJECT_ID && yarn env:generate && yarn deploy
-      - remove-older-gae-versions
-      - notify-slack:
-          slackChannel: deploy-sandbox
-          environment: sandbox
-          approvedByMessage: ' by ${CIRCLE_USERNAME}'
-  deploy-sandbox-envs: &deploy-sandbox-envs
-    executor: node
-    steps:
-      - attach-workspace
-      - load-git-commit-url-and-version
-      - install-google-cloud-sdk-and-initialize:
-          projectId: $PROJECT_ID
-      - load-deployment-files
-      - select-cloud-debugger-source-code
-      - run:
-          name: Update GAE
-          command: export NODE_ENV=$NODE_ENV && export PROJECT_ID=$PROJECT_ID && yarn env:generate && yarn deploy
-      - remove-older-gae-versions
-      - notify-slack:
-          slackChannel: deploy-$NODE_ENV
-          environment: $NODE_ENV
-          approvedByMessage: ' by ${CIRCLE_USERNAME}'
-
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
@@ -124,11 +88,6 @@ workflows:
       - build:
           requires:
             - install-dependencies
-      - test-taxonomy:
-          requires:
-            - build
-            - audit
-            - lint
       - test:
           requires:
             - build
@@ -136,5 +95,4 @@ workflows:
             - lint
       - upload-code-coverage:
           requires:
-            - test-taxonomy
             - test
