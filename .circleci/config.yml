@@ -1,26 +1,140 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
-    docker:
-      - image: cimg/base:stable
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
+  install-dependencies:
+    executor: node
     steps:
       - checkout
+      - create-npmrc-file
+      - restore_cache:
+          keys:
+            - v3-dependencies-{{ checksum "package.json" }}
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Install dependencies
+          command: yarn install --prefer-offline --no-progress
+      - save_cache:
+          paths:
+            - node_modules
+          key: v3-dependencies-{{ checksum "package.json" }}
+      - persist-to-workspace
+  lint:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Check formatting
+          command: yarn lint
+  audit:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Audit package dependencies
+          command: yarn audit-ci
+  build:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Build project
+          command: yarn build
+      - persist-to-workspace
+  test:
+    executor: node-postgres
+    parallelism: 6
+    resource_class: large
+    steps:
+      - attach-workspace
+      - download-code-climate-test-reporter
+      - run:
+          name: Wait for postgres db
+          command: dockerize -wait tcp://localhost:5432 -timeout 1m
+      - setup-jest-junit-env-variables
+      - run:
+          name: Run database migrations
+          command: node ./node_modules/typeorm/cli.js migration:run
+      - run:
+          name: Run tests
+          command: |
+            TEST_FILES_NAME=$(circleci tests glob "src/**/*.spec.ts" | circleci tests split --split-by=filesize)
+            node ./node_modules/jest/bin/jest.js $TEST_FILES_NAME --coverage --reporters=default --reporters=jest-junit --runInBand --forceExit
+      - store_test_results:
+          path: tmp/test-results/
+      - persist-code-coverage-to-workspace:
+          fileName: codeclimate.non-taxonomy$CIRCLE_NODE_INDEX.json
+  upload-code-coverage:
+    executor: node
+    steps:
+      - attach-code-coverage-workspace
+      - download-code-climate-test-reporter
+      - run:
+          name: Push Test coverage to Codeclimate
+          command: |
+            ./tmp/cc-test-reporter sum-coverage tmp/coverage/codeclimate.*.json -p 7 -o tmp/coverage/codeclimate.total.json
+            ./tmp/cc-test-reporter upload-coverage -i tmp/coverage/codeclimate.total.json
+  deploy-sandbox:
+    executor: node
+    steps:
+      - attach-workspace
+      - load-git-commit-url-and-version
+      - install-google-cloud-sdk-and-initialize:
+          projectId: $SANDBOX_PROJECT_ID
+      - load-deployment-files
+      - select-cloud-debugger-source-code
+      - run:
+          name: Update Sandbox GAE
+          command: export NODE_ENV=sandbox && export PROJECT_ID=$SANDBOX_PROJECT_ID && yarn env:generate && yarn deploy
+      - remove-older-gae-versions
+      - notify-slack:
+          slackChannel: deploy-sandbox
+          environment: sandbox
+          approvedByMessage: ' by ${CIRCLE_USERNAME}'
+  deploy-sandbox-envs: &deploy-sandbox-envs
+    executor: node
+    steps:
+      - attach-workspace
+      - load-git-commit-url-and-version
+      - install-google-cloud-sdk-and-initialize:
+          projectId: $PROJECT_ID
+      - load-deployment-files
+      - select-cloud-debugger-source-code
+      - run:
+          name: Update GAE
+          command: export NODE_ENV=$NODE_ENV && export PROJECT_ID=$PROJECT_ID && yarn env:generate && yarn deploy
+      - remove-older-gae-versions
+      - notify-slack:
+          slackChannel: deploy-$NODE_ENV
+          environment: $NODE_ENV
+          approvedByMessage: ' by ${CIRCLE_USERNAME}'
 
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
-  say-hello-workflow:
+  build-deploy:
     jobs:
-      - say-hello
+      - install-dependencies
+      - audit:
+          requires:
+            - install-dependencies
+      - lint:
+          requires:
+            - install-dependencies
+      - build:
+          requires:
+            - install-dependencies
+      - test-taxonomy:
+          requires:
+            - build
+            - audit
+            - lint
+      - test:
+          requires:
+            - build
+            - audit
+            - lint
+      - upload-code-coverage:
+          requires:
+            - test-taxonomy
+            - test
