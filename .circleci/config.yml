@@ -1,26 +1,189 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
+
+orbs:
+  slack: circleci/slack@3.4.2
+  approvals: commitdev/approvals@0.0.2
+executors:
+  # resource_class: xlarge
+  node:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/node:14.15.4
+  node-postgres:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/node:14.15.4
+        environment:
+          NODE_OPTIONS: --max_old_space_size=4096
+          PGHOST: localhost
+          PGUSER: test
+          PGPORT: 5432
+          PGPASSWORD: test
+          PGDATABASE: test
+      - image: circleci/postgres:12.3
+        environment:
+          POSTGRES_DB: glucotrax
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: test
+          DB_NAME: test
+commands:
+  attach-workspace:
+    steps:
+      - attach_workspace:
+          at: ~/workspace
+  persist-to-workspace:
+    steps:
+      - persist_to_workspace:
+          root: ~/workspace
+          paths:
+            - ./
+  persist-code-coverage-to-workspace:
+    parameters:
+      fileName:
+        type: string
+    steps:
+      - run:
+          name: Format code coverage
+          command: ./tmp/cc-test-reporter format-coverage -t lcov -o tmp/coverage/<< parameters.fileName >> coverage/lcov.info
+      - persist_to_workspace:
+          root: ~/workspace/tmp/coverage
+          paths:
+            - ./
+  attach-code-coverage-workspace:
+    steps:
+      - attach_workspace:
+          at: ~/workspace/tmp/coverage
+  load-git-commit-url-and-version:
+    steps:
+      - run:
+          name: Export git tag or commit id and git url
+          command: |
+            GIT_COMMIT_ID=$(echo $CIRCLE_SHA1 | cut -c -7)
+            if [ -z $CIRCLE_TAG ]; then
+              GIT_LINK="https://github.com/kimarudg/${CIRCLE_PROJECT_REPONAME}/commit/${GIT_COMMIT_ID}"
+              VERSION_ID=$GIT_COMMIT_ID
+            else
+              GIT_LINK="https://github.com/kimarudg/${CIRCLE_PROJECT_REPONAME}/releases/${CIRCLE_TAG}"
+              VERSION_ID="${CIRCLE_TAG//./-}-${GIT_COMMIT_ID}"
+            fi
+            echo "export GIT_COMMIT_ID=$GIT_COMMIT_ID" >> ~/workspace/custom-env-vars
+            echo "export GIT_LINK=$GIT_LINK" >> ~/workspace/custom-env-vars
+            echo "export VERSION_ID=$VERSION_ID" >> ~/workspace/custom-env-vars
+            cat ~/workspace/custom-env-vars >> $BASH_ENV; source $BASH_ENV
+  download-code-climate-test-reporter:
+    steps:
+      - run:
+          name: Download Code Climate Test Reporter
+          command: |
+            mkdir -p tmp/
+            mkdir -p tmp/coverage/
+            mkdir -p tmp/test-results/
+            curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./tmp/cc-test-reporter
+            chmod +x ./tmp/cc-test-reporter
+  setup-jest-junit-env-variables:
+    steps:
+      - run:
+          name: Export jest junit environment variables
+          command: |
+            echo "export JEST_JUNIT_OUTPUT_DIR=tmp/test-results" >> $BASH_ENV
+            echo "export JEST_JUNIT_OUTPUT_NAME=test-results.xml" >> $BASH_ENV
+            echo "export JEST_JUNIT_SUITE_NAME={filepath}" >> $BASH_ENV
+            echo "export JEST_JUNIT_CLASSNAME={filepath}" >> $BASH_ENV
+            source $BASH_ENV
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
-    docker:
-      - image: cimg/base:stable
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
+  install-dependencies:
+    executor: node
     steps:
       - checkout
+      - restore_cache:
+          keys:
+            - v3-dependencies-{{ checksum "package.json" }}
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
-
+          name: Install dependencies
+          command: yarn install --prefer-offline --no-progress
+      - save_cache:
+          paths:
+            - node_modules
+          key: v3-dependencies-{{ checksum "package.json" }}
+      - persist-to-workspace
+  lint:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Check formatting
+          command: yarn lint
+  audit:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Audit package dependencies
+          command: yarn audit-ci
+  build:
+    executor: node
+    steps:
+      - attach-workspace
+      - run:
+          name: Build project
+          command: yarn build
+      - persist-to-workspace
+  test:
+    executor: node-postgres
+    parallelism: 6
+    resource_class: large
+    steps:
+      - attach-workspace
+      - download-code-climate-test-reporter
+      - run:
+          name: Wait for postgres db
+          command: dockerize -wait tcp://localhost:5432 -timeout 1m
+      - setup-jest-junit-env-variables
+      - run:
+          name: Run database migrations
+          command: node ./node_modules/typeorm/cli.js migration:run
+      - run:
+          name: Run tests
+          command: |
+            TEST_FILES_NAME=$(circleci tests glob "src/**/*.spec.ts" | circleci tests split --split-by=filesize)
+            node ./node_modules/jest/bin/jest.js $TEST_FILES_NAME --coverage --reporters=default --reporters=jest-junit --runInBand --forceExit
+      - store_test_results:
+          path: tmp/test-results/
+      - persist-code-coverage-to-workspace:
+          fileName: codeclimate.non-taxonomy$CIRCLE_NODE_INDEX.json
+  upload-code-coverage:
+    executor: node
+    steps:
+      - attach-code-coverage-workspace
+      - download-code-climate-test-reporter
+      - run:
+          name: Push Test coverage to Codeclimate
+          command: |
+            ./tmp/cc-test-reporter sum-coverage tmp/coverage/codeclimate.*.json -p 7 -o tmp/coverage/codeclimate.total.json
+            ./tmp/cc-test-reporter upload-coverage -i tmp/coverage/codeclimate.total.json
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
-  say-hello-workflow:
+  build-deploy:
     jobs:
-      - say-hello
+      - install-dependencies
+      - audit:
+          requires:
+            - install-dependencies
+      - lint:
+          requires:
+            - install-dependencies
+      - build:
+          requires:
+            - install-dependencies
+      - test:
+          requires:
+            - build
+            - audit
+            - lint
+      - upload-code-coverage:
+          requires:
+            - test
