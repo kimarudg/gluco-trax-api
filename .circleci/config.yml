@@ -1,5 +1,32 @@
 version: 2.1
 
+orbs:
+  slack: circleci/slack@3.4.2
+  approvals: commitdev/approvals@0.0.2
+executors:
+  # resource_class: xlarge
+  node:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/node:14.15.4
+  node-postgres:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/node:14.15.4
+        environment:
+          NODE_OPTIONS: --max_old_space_size=4096
+          PGHOST: localhost
+          PGUSER: test
+          PGPORT: 5432
+          PGPASSWORD: test
+          PGDATABASE: test
+      - image: circleci/postgres:12.3
+        environment:
+          POSTGRES_DB: glucotrax
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: test
+          DB_NAME: test
+
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
